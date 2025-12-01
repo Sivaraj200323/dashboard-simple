@@ -1,495 +1,312 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Productivity Dashboard</title>
+<script>
+/* === Minimal robust data logic ONLY (leave all HTML / CSS as-is) ===
+   - normalize headers
+   - parse numbers => return null when missing/non-numeric
+   - Audited: only use if numeric; otherwise treat as null (exclude from audited/quality calcs)
+   - Count: treated strictly as Error Count (missing -> 0)
+   - date dropdown and CSV parsing robust to quoted commas
+*/
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+const SHEET_ID = '1br-F3OlvJWn5TDn1Loh7WEXOtVw-o1Y7gl3kAxaMfHM';
+const SHEET_GID = '0';
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
 
-  <style>
-    /* small custom tweaks to match the look & feel */
-    .metric-card {
-      border-radius: 12px;
-      padding: 22px;
-      color: white;
-      min-height: 110px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      box-shadow: 0 8px 18px rgba(17,24,39,0.35);
-    }
-    .metric-title { font-size: 14px; opacity: 0.9; }
-    .metric-value { font-size: 34px; font-weight: 700; }
-    .export-btn {
-      background: linear-gradient(90deg,#10b981,#06b6d4);
-      color: white;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-weight:600;
-      box-shadow: 0 6px 14px rgba(3,7,18,0.25);
-    }
-    .table-header-td { background:#0f4a66; color:white; font-weight:700; padding:12px; }
-    .rounded-table { border-radius:10px; overflow:hidden; }
-  </style>
-</head>
-<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen text-slate-200">
-  <div class="max-w-7xl mx-auto p-8">
-    <div class="mb-6">
-      <h1 class="text-4xl font-extrabold text-white mb-2">📊 Productivity Dashboard</h1>
-      <p id="lastUpdated" class="text-slate-400">Loading...</p>
-    </div>
+let allData = [];
+let filteredData = [];
+let productivityChart = null;
+let targetChart = null;
 
-    <!-- Filters + Export -->
-    <div class="flex items-center justify-between gap-4 mb-6">
-      <div class="bg-slate-800 p-6 rounded-lg flex gap-4 items-center w-full">
-        <select id="monthFilter" class="px-4 py-2 bg-slate-700 rounded-md text-white">
-          <option>All Months</option>
-        </select>
-        <select id="dateFilter" class="px-4 py-2 bg-slate-700 rounded-md text-white">
-          <option value="">All Dates</option>
-        </select>
-        <select id="userFilter" class="px-4 py-2 bg-slate-700 rounded-md text-white">
-          <option>All Users</option>
-        </select>
-        <button id="applyFilters" class="ml-auto px-4 py-2 bg-indigo-600 rounded-md font-semibold">Apply Filters</button>
-        <button id="resetFilters" class="px-4 py-2 bg-slate-700 rounded-md">Reset</button>
-      </div>
+function normalizeHeader(h) {
+  return String(h || '').trim().replace(/\uFEFF/g, '').replace(/\s+/g,' ').toLowerCase();
+}
 
-      <div>
-        <button id="exportExcel" class="export-btn">📥 Export to Excel</button>
-      </div>
-    </div>
+// parseNum: returns number OR null (important distinction)
+function parseNum(val) {
+  if (val === undefined || val === null) return null;
+  const s = String(val).trim();
+  if (s === '') return null;
+  const cleaned = s.replace(/[%\s,]+/g,'').trim();
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
 
-    <!-- Loading -->
-    <div id="loading" class="text-center py-12">
-      <div class="inline-block animate-spin text-blue-400 text-4xl">⟳</div>
-      <p id="loadingText" class="text-slate-300 mt-4">Loading dashboard...</p>
-    </div>
+// CSV line splitter (handles quoted commas)
+function splitCsvLine(line) {
+  const vals = [];
+  let cur = '', inQuotes = false;
+  for (let i=0;i<line.length;i++){
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === ',' && !inQuotes) { vals.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  vals.push(cur);
+  return vals;
+}
 
-    <!-- Metrics -->
-    <div id="metricsContainer" class="hidden">
-      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-6">
-        <div class="metric-card" style="background:linear-gradient(90deg,#6b5ce7,#5eead4);">
-          <div class="metric-title">Total Users</div>
-          <div class="metric-value" id="metricUsers">0</div>
-        </div>
-        <div class="metric-card" style="background:linear-gradient(90deg,#06b6d4,#10b981);">
-          <div class="metric-title">Avg Productivity</div>
-          <div class="metric-value" id="metricProductivity">0%</div>
-        </div>
-        <div class="metric-card" style="background:linear-gradient(90deg,#f472b6,#fb7185);">
-          <div class="metric-title">Avg Quality</div>
-          <div class="metric-value" id="metricQuality">0%</div>
-        </div>
-        <div class="metric-card" style="background:linear-gradient(90deg,#06b6d4,#60a5fa);">
-          <div class="metric-title">Total Hours</div>
-          <div class="metric-value" id="metricHours">0</div>
-        </div>
-      </div>
-
-      <!-- Secondary metrics row (Errors + Audited) -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div class="metric-card" style="background:linear-gradient(90deg,#f59e0b,#f97316);">
-          <div class="metric-title">Error Count (Count)</div>
-          <div class="metric-value" id="metricErrors">0</div>
-        </div>
-        <div class="metric-card" style="background:linear-gradient(90deg,#14b8a6,#06b6d4);">
-          <div class="metric-title">Audited Items (only when present)</div>
-          <div class="metric-value" id="metricAudited">-</div>
-          <div class="text-xs text-slate-200 opacity-80">If `Audited` is missing for rows, those rows are <strong>excluded</strong> from audited & quality calculations</div>
-        </div>
-      </div>
-
-      <!-- Charts -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 class="text-xl font-bold text-white mb-4">Productivity Trend</h2>
-          <canvas id="productivityChart"></canvas>
-        </div>
-        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 class="text-xl font-bold text-white mb-4">Target vs Achieved</h2>
-          <canvas id="targetChart"></canvas>
-        </div>
-      </div>
-
-      <!-- Table -->
-      <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h2 class="text-xl font-bold text-white mb-4">User-Wise Performance Report</h2>
-        <div class="rounded-table overflow-hidden">
-          <table class="w-full text-sm">
-            <thead>
-              <tr>
-                <th class="table-header-td">NAME</th>
-                <th class="table-header-td">PROCESS NAME</th>
-                <th class="table-header-td">SUM OF # OF HOURS</th>
-                <th class="table-header-td">TARGET</th>
-                <th class="table-header-td">ACHIEVED</th>
-                <th class="table-header-td">PRODUCTIVITY (%)</th>
-                <th class="table-header-td"># OF ERRORS (Count)</th>
-                <th class="table-header-td">AUDITED</th>
-                <th class="table-header-td">QUALITY(%)</th>
-              </tr>
-            </thead>
-            <tbody id="dataTable" class="bg-white text-slate-800"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // CONFIG: Use your public sheet
-    const SHEET_ID = '1br-F3OlvJWn5TDn1Loh7WEXOtVw-o1Y7gl3kAxaMfHM';
-    const SHEET_GID = '0';
-    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
-
-    let allData = [];
-    let filteredData = [];
-    let productivityChart = null;
-    let targetChart = null;
-
-    function normalizeHeader(h) {
-      return String(h || '').trim().replace(/\uFEFF/g,'').replace(/\s+/g,' ').toLowerCase();
-    }
-    function parseNum(val) {
-      if (val === undefined || val === null || String(val).trim() === '') return null; // return null (important)
-      const cleaned = String(val).replace(/[%\s,]+/g, '').trim();
-      const n = parseFloat(cleaned);
-      return isNaN(n) ? null : n;
-    }
-
-    // Robust CSV parse (handles quoted commas)
-    function parseCSV(csv) {
-      const lines = csv.split(/\r?\n/).filter(Boolean);
-      if (!lines.length) return [];
-      const headers = splitCsvLine(lines[0]).map(normalizeHeader);
-      const rows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = splitCsvLine(lines[i]);
-        const obj = {};
-        headers.forEach((h, idx) => {
-          obj[h] = (values[idx] !== undefined) ? values[idx].trim() : '';
-        });
-        rows.push(obj);
-      }
-      return rows;
-    }
-    function splitCsvLine(line) {
-      const vals = [];
-      let cur = '', inQuotes = false;
-      for (let i=0;i<line.length;i++){
-        const ch = line[i];
-        if (ch === '"') { inQuotes = !inQuotes; continue; }
-        if (ch === ',' && !inQuotes) { vals.push(cur); cur = ''; continue; }
-        cur += ch;
-      }
-      vals.push(cur);
-      return vals;
-    }
-
-    // Get field with flexible header names
-    function getField(row, names) {
-      for (const n of names) {
-        const key = normalizeHeader(n);
-        if (row.hasOwnProperty(key) && row[key] !== '') return row[key];
-      }
-      // fallback: match partials
-      for (const k in row) {
-        if (names[0].toLowerCase().includes('date') && k.includes('date')) return row[k];
-        if (names[0].toLowerCase().includes('user') && k.includes('user')) return row[k];
-      }
-      return '';
-    }
-
-    // Audited getter: return numeric value or null (do NOT fallback to Count)
-    function getAuditedValue(row) {
-      const val = getField(row, ['Audited']);
-      return parseNum(val); // returns number or null
-    }
-    function getCountValue(row) {
-      return parseNum(getField(row, ['Count'])) || 0; // treat missing as 0 for Error summation
-    }
-
-    async function fetchData() {
-      try {
-        const res = await fetch(CSV_URL, {cache:'no-store'});
-        if (!res.ok) throw new Error('Network response not OK: ' + res.status);
-        const csv = await res.text();
-        allData = parseCSV(csv);
-
-        console.log('Rows fetched:', allData.length);
-        console.log('Sample', allData[0]);
-
-        document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString()}`;
-
-        populateFilters();
-        filterData();
-
-        document.getElementById('loading').classList.add('hidden');
-        document.getElementById('metricsContainer').classList.remove('hidden');
-      } catch (err) {
-        console.error('Error fetching CSV:', err);
-        document.getElementById('loadingText').innerHTML = `<span class="text-red-400">Error loading data. Check sheet permissions or URL.</span>`;
-      }
-    }
-
-    function populateFilters() {
-      const monthSet = new Set();
-      const userSet = new Set();
-      allData.forEach(r => {
-        const m = getField(r, ['Month']);
-        const u = getField(r, ['User Name','User']);
-        if (m) monthSet.add(m);
-        if (u) userSet.add(u);
-      });
-      const monthArr = ['All', ...Array.from(monthSet)];
-      const userArr = ['All', ...Array.from(userSet)];
-
-      document.getElementById('monthFilter').innerHTML = monthArr.map(m=>`<option value="${m}">${m}</option>`).join('');
-      document.getElementById('userFilter').innerHTML = userArr.map(u=>`<option value="${u}">${u}</option>`).join('');
-
-      // Date filter will be filled by updateDateFilter()
-      updateDateFilter();
-    }
-
-    function filterData() {
-      const selectedMonth = document.getElementById('monthFilter').value;
-      const selectedDate = document.getElementById('dateFilter').value;
-      const selectedUser = document.getElementById('userFilter').value;
-
-      filteredData = allData.filter(r => {
-        const month = getField(r, ['Month']) || '';
-        const date = getField(r, ['Date']) || '';
-        const user = getField(r, ['User Name','User']) || '';
-
-        if (selectedMonth && selectedMonth !== 'All' && month !== selectedMonth) return false;
-        if (selectedDate && selectedDate !== '' && date !== selectedDate) return false;
-        if (selectedUser && selectedUser !== 'All' && user !== selectedUser) return false;
-        return true;
-      });
-
-      updateDashboard();
-    }
-
-    function updateDateFilter() {
-      const selMonth = document.getElementById('monthFilter').value;
-      const selUser = document.getElementById('userFilter').value;
-
-      let rows = allData.slice();
-      if (selMonth && selMonth !== 'All') rows = rows.filter(r => (getField(r,['Month'])||'') === selMonth);
-      if (selUser && selUser !== 'All') rows = rows.filter(r => (getField(r,['User Name','User'])||'') === selUser);
-
-      const dateSet = new Set();
-      rows.forEach(r => {
-        const d = getField(r, ['Date']);
-        if (d) dateSet.add(d);
-      });
-
-      const dates = ['', ...Array.from(dateSet).sort((a,b)=> {
-        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' ')) || 0;
-        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' ')) || 0;
-        return pa - pb;
-      })];
-
-      const dateFilter = document.getElementById('dateFilter');
-      const cur = dateFilter.value;
-      dateFilter.innerHTML = dates.map(d => `<option value="${d}">${d || 'All Dates'}</option>`).join('');
-      if (dates.includes(cur)) dateFilter.value = cur;
-      else dateFilter.value = '';
-    }
-
-    function updateDashboard() {
-      updateMetrics();
-      updateCharts();
-      updateTable();
-      updateDateFilter();
-    }
-
-    function updateMetrics() {
-      // Total users
-      const users = new Set(filteredData.map(r => getField(r, ['User Name','User'])).filter(Boolean));
-      document.getElementById('metricUsers').textContent = users.size;
-
-      // Total hours (treat missing as 0)
-      const totalHours = filteredData.reduce((s,r)=> {
-        const n = parseNum(getField(r,['# of Hours','Hours']));
-        return s + (n === null ? 0 : n);
-      },0);
-      document.getElementById('metricHours').textContent = totalHours.toFixed(1);
-
-      // Avg Productivity - include rows that have Productivity numeric
-      const prodVals = filteredData.map(r=>parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
-      const avgProd = prodVals.length ? (prodVals.reduce((a,b)=>a+b,0)/prodVals.length).toFixed(1) : 0;
-      document.getElementById('metricProductivity').textContent = `${avgProd}%`;
-
-      // Error Count (Count) - sum of Count column (missing => 0)
-      const totalErrors = filteredData.reduce((s,r) => s + (parseNum(getField(r,['Count'])) || 0), 0);
-      document.getElementById('metricErrors').textContent = totalErrors.toFixed(0);
-
-      // Audited metric: sum ONLY of numeric Audited values (rows without Audited are ignored)
-      const auditedList = filteredData.map(r => getAuditedValue(r)).filter(v => v !== null);
-      const totalAudited = auditedList.length ? auditedList.reduce((a,b)=>a+b,0) : null;
-      document.getElementById('metricAudited').textContent = (totalAudited === null ? '-' : totalAudited.toFixed(0));
-
-      // Avg Quality: only include rows where Quality is numeric AND Audited is present (numeric)
-      const qualPairs = filteredData.map(r => {
-        const qual = parseNum(getField(r, ['Quality %','Quality']));
-        const aud = getAuditedValue(r);
-        return {qual,aud};
-      }).filter(x => x.qual !== null && x.aud !== null);
-
-      const avgQual = qualPairs.length ? (qualPairs.reduce((s,x)=>s + x.qual, 0) / qualPairs.length).toFixed(1) : 0;
-      document.getElementById('metricQuality').textContent = `${avgQual}%`;
-    }
-
-    function updateCharts() {
-      const dates = Array.from(new Set(filteredData.map(r => getField(r,['Date'])))).filter(Boolean).sort((a,b)=> {
-        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' ')) || 0;
-        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' ')) || 0;
-        return pa - pb;
-      });
-
-      const productivityData = dates.map(date => {
-        const day = filteredData.filter(r => getField(r,['Date']) === date);
-        const pList = day.map(r => parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
-        const qList = day.map(r => parseNum(getField(r,['Quality %','Quality']))).filter(v=>v!==null);
-        const avgP = pList.length ? (pList.reduce((a,b)=>a+b,0)/pList.length) : 0;
-        const avgQ = qList.length ? (qList.reduce((a,b)=>a+b,0)/qList.length) : 0;
-        return {date, productivity: avgP.toFixed(1), quality: avgQ.toFixed(1)};
-      });
-
-      const targetData = dates.map(date => {
-        const day = filteredData.filter(r => getField(r,['Date']) === date);
-        const target = day.reduce((s,r) => s + (parseNum(getField(r,['Target'])) || 0), 0);
-        const achieved = day.reduce((s,r) => s + (parseNum(getField(r,['Achieved'])) || 0), 0);
-        return {date, target, achieved};
-      });
-
-      // Productivity chart
-      const ctx1 = document.getElementById('productivityChart').getContext('2d');
-      if (productivityChart) productivityChart.destroy();
-      productivityChart = new Chart(ctx1, {
-        type: 'line',
-        data: {
-          labels: productivityData.map(d=>d.date),
-          datasets: [
-            { label: 'Productivity %', data: productivityData.map(d=>d.productivity), borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,0.08)', tension:0.4 },
-            { label: 'Quality %', data: productivityData.map(d=>d.quality), borderColor:'#f472b6', backgroundColor:'rgba(244,114,182,0.08)', tension:0.4 }
-          ]
-        },
-        options: {
-          responsive:true, maintainAspectRatio:true,
-          plugins:{ legend:{ labels:{ color:'#94a3b8' } } },
-          scales:{ y:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#475569' }, min:0 }, x:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#475569' } } }
-        }
-      });
-
-      // Target vs Achieved (bar)
-      const ctx2 = document.getElementById('targetChart').getContext('2d');
-      if (targetChart) targetChart.destroy();
-      targetChart = new Chart(ctx2, {
-        type: 'bar',
-        data: {
-          labels: targetData.map(d=>d.date),
-          datasets: [
-            { label:'Target', data: targetData.map(d=>d.target), backgroundColor:'#60a5fa' },
-            { label:'Achieved', data: targetData.map(d=>d.achieved), backgroundColor:'#34d399' }
-          ]
-        },
-        options:{ responsive:true, maintainAspectRatio:true, plugins:{ legend:{ labels:{ color:'#94a3b8' } } }, scales:{ y:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#475569' } }, x:{ ticks:{ color:'#94a3b8' }, grid:{ color:'#475569' } } } }
-      });
-    }
-
-    function updateTable() {
-      const rowsHtml = filteredData.slice(0,500).map(r => {
-        const name = getField(r, ['User Name','User']);
-        const process = getField(r, ['Project Name','Project','Process Type']);
-        const hours = parseNum(getField(r, ['# of Hours','Hours'])) || 0;
-        const target = parseNum(getField(r, ['Target'])) || 0;
-        const achieved = parseNum(getField(r, ['Achieved'])) || 0;
-        const productivity = parseNum(getField(r, ['Productivity (%)','Productivity'])) || 0;
-        const errors = getCountValue(r) || 0;
-        const audited = getAuditedValue(r);
-        const quality = parseNum(getField(r, ['Quality %','Quality']));
-
-        return `<tr class="border-t">
-          <td class="px-4 py-3">${name}</td>
-          <td class="px-4 py-3">${process}</td>
-          <td class="px-4 py-3 text-center">${hours}</td>
-          <td class="px-4 py-3 text-center">${target}</td>
-          <td class="px-4 py-3 text-center font-semibold">${achieved}</td>
-          <td class="px-4 py-3 text-center">${productivity}%</td>
-          <td class="px-4 py-3 text-center">${errors}</td>
-          <td class="px-4 py-3 text-center">${audited === null ? '' : audited}</td>
-          <td class="px-4 py-3 text-center">${quality === null ? '' : quality + '%'}</td>
-        </tr>`;
-      }).join('');
-
-      // Add Grand Total row (sums where appropriate; audited shown as sum of present audited values)
-      const totalHours = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['# of Hours','Hours'])) || 0), 0);
-      const totalTarget = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Target'])) || 0), 0);
-      const totalAchieved = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Achieved'])) || 0), 0);
-      const totalErrors = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Count'])) || 0), 0);
-      const totalAuditedList = filteredData.map(r => getAuditedValue(r)).filter(v=>v!==null);
-      const totalAudited = totalAuditedList.length ? totalAuditedList.reduce((a,b)=>a+b,0) : '';
-      const grandQualityList = filteredData.map(r => {
-        const q = parseNum(getField(r,['Quality %','Quality'])); const a = getAuditedValue(r);
-        return (q !== null && a !== null) ? q : null;
-      }).filter(v=>v!==null);
-      const grandQuality = grandQualityList.length ? (grandQualityList.reduce((a,b)=>a+b,0)/grandQualityList.length).toFixed(1) + '%' : '';
-
-      const totalRow = `<tr class="bg-slate-700 text-white font-semibold">
-        <td class="px-4 py-3">Grand Total</td>
-        <td class="px-4 py-3"></td>
-        <td class="px-4 py-3 text-center">${totalHours.toFixed(1)}</td>
-        <td class="px-4 py-3 text-center">${totalTarget}</td>
-        <td class="px-4 py-3 text-center">${totalAchieved}</td>
-        <td class="px-4 py-3 text-center">${(filteredData.length ? ((filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Productivity (%)','Productivity'])) || 0),0) / (filteredData.filter(r=>parseNum(getField(r,['Productivity (%)','Productivity']))!==null).length || 1)).toFixed(0) : 0)}%</td>
-        <td class="px-4 py-3 text-center">${totalErrors}</td>
-        <td class="px-4 py-3 text-center">${totalAudited || ''}</td>
-        <td class="px-4 py-3 text-center">${grandQuality || ''}</td>
-      </tr>`;
-
-      document.getElementById('dataTable').innerHTML = rowsHtml + totalRow;
-    }
-
-    // Export to CSV/Excel simple function
-    function exportToCsv(filename = 'report.csv') {
-      // create CSV from filteredData with specific columns
-      const cols = ['Date','User Name','Project Name','# of Hours','Target','Achieved','Productivity (%)','Count','Audited','Quality %','Month'];
-      const header = cols.join(',') + '\n';
-      const lines = filteredData.map(r => cols.map(c => {
-        const val = getField(r,[c]) || '';
-        // escape commas/quotes
-        return `"${String(val).replace(/"/g,'""')}"`;
-      }).join(',')).join('\n');
-      const csv = header + lines;
-      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    // event bindings
-    document.getElementById('applyFilters').addEventListener('click', filterData);
-    document.getElementById('resetFilters').addEventListener('click', ()=> {
-      document.getElementById('monthFilter').value = 'All';
-      document.getElementById('userFilter').value = 'All';
-      document.getElementById('dateFilter').value = '';
-      filterData();
+function parseCSV(csv) {
+  const lines = csv.split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = splitCsvLine(lines[i]);
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = (values[idx] !== undefined) ? values[idx].trim() : '';
     });
-    document.getElementById('dateFilter').addEventListener('change', filterData);
-    document.getElementById('monthFilter').addEventListener('change', filterData);
-    document.getElementById('userFilter').addEventListener('change', filterData);
-    document.getElementById('exportExcel').addEventListener('click', ()=>exportToCsv('productivity_report.csv'));
+    rows.push(obj);
+  }
+  return rows;
+}
 
-    fetchData();
+// flexible field getter (tries several possible header names)
+function getField(row, names) {
+  for (const n of names) {
+    const k = normalizeHeader(n);
+    if (k in row && row[k] !== '') return row[k];
+  }
+  // fallback: try partial matches
+  for (const k in row) {
+    if (names[0].toLowerCase().includes('date') && k.includes('date')) return row[k];
+    if (names[0].toLowerCase().includes('user') && k.includes('user')) return row[k];
+  }
+  return '';
+}
 
-    // OPTIONAL: auto-refresh every 60 seconds (uncomment if you want)
-    // setInterval(fetchData, 60000);
-  </script>
-</body>
-</html>
+// Audited: return numeric value or null (DO NOT fallback to Count)
+function getAuditedValue(row) {
+  return parseNum(getField(row, ['Audited']));
+}
+// Count: error count. Return 0 if missing
+function getCountValue(row) {
+  return parseNum(getField(row, ['Count'])) || 0;
+}
+
+// fetch CSV and initialize
+async function fetchData() {
+  try {
+    const res = await fetch(CSV_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Network response not OK: ' + res.status);
+    const csv = await res.text();
+    allData = parseCSV(csv);
+
+    console.log('Fetched rows:', allData.length);
+    document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString()}`;
+
+    populateFilters();
+    filterData();
+
+    const loading = document.getElementById('loading');
+    if (loading) loading.classList.add('hidden');
+    const mcont = document.getElementById('metricsContainer');
+    if (mcont) mcont.classList.remove('hidden');
+  } catch (err) {
+    console.error('CSV fetch error', err);
+    const lt = document.getElementById('loadingText');
+    if (lt) lt.innerHTML = `<span style="color:#ff6b6b">Error loading data. Check sheet permissions or URL.</span>`;
+  }
+}
+
+function populateFilters() {
+  const monthSet = new Set();
+  const userSet = new Set();
+  allData.forEach(r => {
+    const m = getField(r, ['Month']);
+    const u = getField(r, ['User Name','User']);
+    if (m) monthSet.add(m);
+    if (u) userSet.add(u);
+  });
+  const monthArr = ['All', ...Array.from(monthSet)];
+  const userArr = ['All', ...Array.from(userSet)];
+
+  const monthFilter = document.getElementById('monthFilter');
+  const userFilter = document.getElementById('userFilter');
+  if (monthFilter) monthFilter.innerHTML = monthArr.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if (userFilter) userFilter.innerHTML = userArr.map(u=>`<option value="${u}">${u}</option>`).join('');
+
+  updateDateFilter();
+}
+
+function updateDateFilter() {
+  const selMonth = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'All';
+  const selUser = document.getElementById('userFilter') ? document.getElementById('userFilter').value : 'All';
+  let rows = allData.slice();
+  if (selMonth && selMonth !== 'All') rows = rows.filter(r => (getField(r,['Month'])||'') === selMonth);
+  if (selUser && selUser !== 'All') rows = rows.filter(r => (getField(r,['User Name','User'])||'') === selUser);
+
+  const dateSet = new Set();
+  rows.forEach(r => {
+    const d = getField(r, ['Date']);
+    if (d) dateSet.add(d);
+  });
+
+  const dates = ['', ...Array.from(dateSet).sort((a,b)=> (Date.parse(a)||Date.parse(a.replace(/-/g,' '))||0) - (Date.parse(b)||Date.parse(b.replace(/-/g,' '))||0))];
+  const dateFilter = document.getElementById('dateFilter');
+  if (dateFilter) {
+    const cur = dateFilter.value;
+    dateFilter.innerHTML = dates.map(d=>`<option value="${d}">${d || 'All Dates'}</option>`).join('');
+    if (dates.includes(cur)) dateFilter.value = cur; else dateFilter.value = '';
+  }
+}
+
+function filterData() {
+  const selectedMonth = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'All';
+  const selectedDate = document.getElementById('dateFilter') ? document.getElementById('dateFilter').value : '';
+  const selectedUser = document.getElementById('userFilter') ? document.getElementById('userFilter').value : 'All';
+
+  filteredData = allData.filter(r => {
+    const month = getField(r,['Month']) || '';
+    const date = getField(r,['Date']) || '';
+    const user = getField(r, ['User Name','User']) || '';
+    if (selectedMonth && selectedMonth !== 'All' && month !== selectedMonth) return false;
+    if (selectedDate && selectedDate !== '' && date !== selectedDate) return false;
+    if (selectedUser && selectedUser !== 'All' && user !== selectedUser) return false;
+    return true;
+  });
+
+  updateDashboard();
+}
+
+function updateDashboard() {
+  updateMetrics();
+  updateCharts();
+  updateTable();
+  updateDateFilter();
+}
+
+function updateMetrics() {
+  // Users
+  const users = new Set(filteredData.map(r=> getField(r, ['User Name','User'])).filter(Boolean));
+  const elUsers = document.getElementById('metricUsers');
+  if (elUsers) elUsers.textContent = users.size;
+
+  // Hours
+  const hours = filteredData.reduce((s,r)=> s + (parseNum( getField(r,['# of Hours','Hours'])) || 0), 0);
+  const elHours = document.getElementById('metricHours'); if (elHours) elHours.textContent = hours.toFixed(1);
+
+  // Avg Productivity (include only rows with numeric productivity)
+  const pList = filteredData.map(r=>parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
+  const avgP = pList.length ? (pList.reduce((a,b)=>a+b,0)/pList.length).toFixed(1) : 0;
+  const elProd = document.getElementById('metricProductivity'); if (elProd) elProd.textContent = `${avgP}%`;
+
+  // Error Count = sum of Count (missing => 0)
+  const errors = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Count'])) || 0), 0);
+  const elErr = document.getElementById('metricErrors'); if (elErr) elErr.textContent = errors.toFixed(0);
+
+  // Audited: sum ONLY numeric audited values (rows without audited excluded)
+  const auditedVals = filteredData.map(r=>getAuditedValue(r)).filter(v=>v!==null);
+  const totalAudited = auditedVals.length ? auditedVals.reduce((a,b)=>a+b,0) : null;
+  const elAud = document.getElementById('metricAudited');
+  if (elAud) elAud.textContent = (totalAudited === null ? '-' : totalAudited.toFixed(0));
+
+  // Avg Quality: include only rows where BOTH Quality numeric AND Audited numeric
+  const qualPairs = filteredData.map(r=> {
+    const q = parseNum(getField(r,['Quality %','Quality']));
+    const a = getAuditedValue(r);
+    return {q,a};
+  }).filter(x=> x.q !== null && x.a !== null);
+  const avgQual = qualPairs.length ? (qualPairs.reduce((s,x)=> s + x.q,0)/qualPairs.length).toFixed(1) : 0;
+  const elQ = document.getElementById('metricQuality'); if (elQ) elQ.textContent = `${avgQual}%`;
+}
+
+function updateCharts() {
+  // build date series from filteredData
+  const dates = Array.from(new Set(filteredData.map(r => getField(r,['Date'])))).filter(Boolean)
+    .sort((a,b)=> (Date.parse(a)||Date.parse(a.replace(/-/g,' '))||0) - (Date.parse(b)||Date.parse(b.replace(/-/g,' '))||0));
+
+  const prodSeries = dates.map(date => {
+    const day = filteredData.filter(r => getField(r,['Date']) === date);
+    const pvals = day.map(r => parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
+    const qvals = day.map(r => parseNum(getField(r,['Quality %','Quality']))).filter(v=>v!==null);
+    const avgP = pvals.length ? (pvals.reduce((a,b)=>a+b,0)/pvals.length) : 0;
+    const avgQ = qvals.length ? (qvals.reduce((a,b)=>a+b,0)/qvals.length) : 0;
+    return {date, productivity: avgP.toFixed(1), quality: avgQ.toFixed(1)};
+  });
+
+  const targetSeries = dates.map(date => {
+    const day = filteredData.filter(r => getField(r,['Date']) === date);
+    const t = day.reduce((s,r) => s + (parseNum(getField(r,['Target'])) || 0), 0);
+    const a = day.reduce((s,r) => s + (parseNum(getField(r,['Achieved'])) || 0), 0);
+    return {date, target:t, achieved:a};
+  });
+
+  // draw charts (Chart.js) - guard in case canvas missing
+  const pCanvas = document.getElementById('productivityChart');
+  if (pCanvas) {
+    const ctx1 = pCanvas.getContext('2d');
+    if (productivityChart) productivityChart.destroy();
+    productivityChart = new Chart(ctx1, {
+      type:'line',
+      data:{
+        labels: prodSeries.map(d=>d.date),
+        datasets:[
+          { label:'Productivity %', data: prodSeries.map(d=>d.productivity), borderColor:'#667eea', backgroundColor:'rgba(102,126,234,0.08)', tension:0.4 },
+          { label:'Quality %', data: prodSeries.map(d=>d.quality), borderColor:'#f093fb', backgroundColor:'rgba(240,147,251,0.08)', tension:0.4 }
+        ]
+      },
+      options:{ responsive:true, maintainAspectRatio:true }
+    });
+  }
+
+  const tCanvas = document.getElementById('targetChart');
+  if (tCanvas) {
+    const ctx2 = tCanvas.getContext('2d');
+    if (targetChart) targetChart.destroy();
+    targetChart = new Chart(ctx2, {
+      type:'bar',
+      data:{
+        labels: targetSeries.map(d=>d.date),
+        datasets:[
+          { label:'Target', data: targetSeries.map(d=>d.target) },
+          { label:'Achieved', data: targetSeries.map(d=>d.achieved) }
+        ]
+      },
+      options:{ responsive:true, maintainAspectRatio:true }
+    });
+  }
+}
+
+function updateTable() {
+  const tbody = document.getElementById('dataTable');
+  if (!tbody) return;
+  const rowsHtml = filteredData.map(r => {
+    const name = getField(r,['User Name','User']);
+    const project = getField(r,['Project Name','Project','Process Type']);
+    const hours = parseNum(getField(r,['# of Hours','Hours'])) || 0;
+    const target = parseNum(getField(r,['Target'])) || 0;
+    const achieved = parseNum(getField(r,['Achieved'])) || 0;
+    const productivity = parseNum(getField(r,['Productivity (%)','Productivity'])) || 0;
+    const errors = getCountValue(r) || 0;
+    const audited = getAuditedValue(r);
+    const quality = parseNum(getField(r,['Quality %','Quality']));
+    return `<tr>
+      <td>${name}</td><td>${project}</td>
+      <td style="text-align:center">${hours}</td>
+      <td style="text-align:center">${target}</td>
+      <td style="text-align:center">${achieved}</td>
+      <td style="text-align:center">${productivity===null? '': productivity + '%'}</td>
+      <td style="text-align:center">${errors}</td>
+      <td style="text-align:center">${audited===null? '': audited}</td>
+      <td style="text-align:center">${quality===null? '': quality + '%'}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = rowsHtml || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#94a3b8">No records</td></tr>';
+}
+
+// wire events (assumes the original HTML has these IDs)
+document.getElementById('monthFilter')?.addEventListener('change', filterData);
+document.getElementById('dateFilter')?.addEventListener('change', filterData);
+document.getElementById('userFilter')?.addEventListener('change', filterData);
+document.getElementById('applyFilters')?.addEventListener('click', filterData);
+document.getElementById('resetFilters')?.addEventListener('click', ()=> {
+  if (document.getElementById('monthFilter')) document.getElementById('monthFilter').value = 'All';
+  if (document.getElementById('userFilter')) document.getElementById('userFilter').value = 'All';
+  if (document.getElementById('dateFilter')) document.getElementById('dateFilter').value = '';
+  filterData();
+});
+
+// fetch now
+fetchData();
+</script>
