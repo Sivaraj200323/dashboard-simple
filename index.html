@@ -1,312 +1,454 @@
-<script>
-/* === Minimal robust data logic ONLY (leave all HTML / CSS as-is) ===
-   - normalize headers
-   - parse numbers => return null when missing/non-numeric
-   - Audited: only use if numeric; otherwise treat as null (exclude from audited/quality calcs)
-   - Count: treated strictly as Error Count (missing -> 0)
-   - date dropdown and CSV parsing robust to quoted commas
-*/
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Productivity Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen">
+  <div id="app" class="p-8">
+    <div class="max-w-7xl mx-auto">
+      <div class="mb-8">
+        <h1 class="text-4xl font-bold text-white mb-2">📊 Productivity Dashboard</h1>
+        <p class="text-slate-400" id="lastUpdated">Loading...</p>
+      </div>
 
-const SHEET_ID = '1br-F3OlvJWn5TDn1Loh7WEXOtVw-o1Y7gl3kAxaMfHM';
-const SHEET_GID = '0';
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
+      <div class="bg-slate-800 rounded-lg p-6 mb-8 border border-slate-700">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label class="block text-sm font-semibold text-slate-300 mb-3">📅 Month</label>
+            <select id="monthFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
+              <option value="All">All</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-slate-300 mb-3">📅 Date</label>
+            <select id="dateFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
+              <option value="">All Dates</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-slate-300 mb-3">👥 User</label>
+            <select id="userFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
+              <option value="All">All</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
-let allData = [];
-let filteredData = [];
-let productivityChart = null;
-let targetChart = null;
+      <div id="loading" class="text-center py-12">
+        <div class="inline-block animate-spin text-blue-400 text-4xl">⟳</div>
+        <p class="text-slate-300 mt-4" id="loadingText">Loading dashboard...</p>
+      </div>
 
-function normalizeHeader(h) {
-  return String(h || '').trim().replace(/\uFEFF/g, '').replace(/\s+/g,' ').toLowerCase();
-}
+      <div id="metricsContainer" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Hours Logged</div>
+            <div id="metricHours" class="text-3xl font-bold">0h</div>
+          </div>
+          <div class="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Target Tasks</div>
+            <div id="metricTarget" class="text-3xl font-bold">0</div>
+          </div>
+          <div class="bg-gradient-to-br from-green-600 to-green-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Tasks Achieved</div>
+            <div id="metricAchieved" class="text-3xl font-bold">0</div>
+          </div>
+          <div class="bg-gradient-to-br from-orange-600 to-orange-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Avg Productivity</div>
+            <div id="metricProductivity" class="text-3xl font-bold">0%</div>
+          </div>
+          <div class="bg-gradient-to-br from-pink-600 to-pink-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Quality Score</div>
+            <div id="metricQuality" class="text-3xl font-bold">0%</div>
+          </div>
+          <div class="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg p-6 text-white">
+            <div class="text-xs opacity-90 mb-2">Audited Items</div>
+            <div id="metricAudited" class="text-3xl font-bold">0</div>
+          </div>
+        </div>
 
-// parseNum: returns number OR null (important distinction)
-function parseNum(val) {
-  if (val === undefined || val === null) return null;
-  const s = String(val).trim();
-  if (s === '') return null;
-  const cleaned = s.replace(/[%\s,]+/g,'').trim();
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? null : n;
-}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 class="text-xl font-bold text-white mb-6">Productivity Trend</h2>
+            <canvas id="productivityChart"></canvas>
+          </div>
+          <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 class="text-xl font-bold text-white mb-6">Target vs Achieved</h2>
+            <canvas id="targetChart"></canvas>
+          </div>
+        </div>
 
-// CSV line splitter (handles quoted commas)
-function splitCsvLine(line) {
-  const vals = [];
-  let cur = '', inQuotes = false;
-  for (let i=0;i<line.length;i++){
-    const ch = line[i];
-    if (ch === '"') { inQuotes = !inQuotes; continue; }
-    if (ch === ',' && !inQuotes) { vals.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  vals.push(cur);
-  return vals;
-}
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
+          <h2 class="text-xl font-bold text-white mb-6">User Performance Summary</h2>
+          <div id="userPerformance" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </div>
 
-function parseCSV(csv) {
-  const lines = csv.split(/\r?\n/).filter(Boolean);
-  if (!lines.length) return [];
-  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = splitCsvLine(lines[i]);
-    const obj = {};
-    headers.forEach((h, idx) => {
-      obj[h] = (values[idx] !== undefined) ? values[idx].trim() : '';
-    });
-    rows.push(obj);
-  }
-  return rows;
-}
+        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
+          <h2 class="text-xl font-bold text-white mb-6">Detailed Records</h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-slate-300">
+              <thead class="bg-slate-700">
+                <tr>
+                  <th class="px-4 py-3 text-left">Date</th>
+                  <th class="px-4 py-3 text-left">User</th>
+                  <th class="px-4 py-3 text-left">Project</th>
+                  <th class="px-4 py-3 text-center">Hours</th>
+                  <th class="px-4 py-3 text-center">Target</th>
+                  <th class="px-4 py-3 text-center">Achieved</th>
+                  <th class="px-4 py-3 text-center">Productivity %</th>
+                  <th class="px-4 py-3 text-center">Quality %</th>
+                </tr>
+              </thead>
+              <tbody id="dataTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-// flexible field getter (tries several possible header names)
-function getField(row, names) {
-  for (const n of names) {
-    const k = normalizeHeader(n);
-    if (k in row && row[k] !== '') return row[k];
-  }
-  // fallback: try partial matches
-  for (const k in row) {
-    if (names[0].toLowerCase().includes('date') && k.includes('date')) return row[k];
-    if (names[0].toLowerCase().includes('user') && k.includes('user')) return row[k];
-  }
-  return '';
-}
+  <script>
+    // ============ CONFIG ============
+    const SHEET_ID = '1br-F3OlvJWn5TDn1Loh7WEXOtVw-o1Y7gl3kAxaMfHM';
+    const SHEET_GID = '0'; // change if your data tab uses another gid
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
 
-// Audited: return numeric value or null (DO NOT fallback to Count)
-function getAuditedValue(row) {
-  return parseNum(getField(row, ['Audited']));
-}
-// Count: error count. Return 0 if missing
-function getCountValue(row) {
-  return parseNum(getField(row, ['Count'])) || 0;
-}
+    let allData = [];
+    let filteredData = [];
+    let productivityChart = null;
+    let targetChart = null;
 
-// fetch CSV and initialize
-async function fetchData() {
-  try {
-    const res = await fetch(CSV_URL, { cache: 'no-store' });
-    if (!res.ok) throw new Error('Network response not OK: ' + res.status);
-    const csv = await res.text();
-    allData = parseCSV(csv);
+    // Utility: normalize header keys
+    function normalizeHeader(h) {
+      return h.toString().trim().replace(/\s+/g, ' ').replace(/\uFEFF/g, '').toLowerCase();
+    }
 
-    console.log('Fetched rows:', allData.length);
-    document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString()}`;
+    // Utility: parse numeric (handles '86%', '', null)
+    function parseNum(val) {
+      if (val === undefined || val === null || val === '') return 0;
+      const cleaned = String(val).replace(/[%\s,]+/g, '').trim();
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? 0 : n;
+    }
 
-    populateFilters();
-    filterData();
+    // Parse CSV robustly
+    function parseCSV(csv) {
+      const rows = csv.split(/\r?\n/).filter(Boolean);
+      if (rows.length === 0) return [];
+      // Split header by comma but allow quoted values
+      const headerLine = rows[0];
+      const headers = headerLine.split(',').map(h => normalizeHeader(h));
+      const dataRows = [];
+      for (let i = 1; i < rows.length; i++) {
+        // Use a simple CSV split that handles quoted commas
+        const line = rows[i];
+        const values = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let c = 0; c < line.length; c++) {
+          const ch = line[c];
+          if (ch === '"' ) { inQuotes = !inQuotes; continue; }
+          if (ch === ',' && !inQuotes) { values.push(cur); cur = ''; continue; }
+          cur += ch;
+        }
+        values.push(cur);
+        const obj = {};
+        headers.forEach((h, idx) => {
+          obj[h] = (values[idx] !== undefined) ? values[idx].trim() : '';
+        });
+        dataRows.push(obj);
+      }
+      return dataRows;
+    }
 
-    const loading = document.getElementById('loading');
-    if (loading) loading.classList.add('hidden');
-    const mcont = document.getElementById('metricsContainer');
-    if (mcont) mcont.classList.remove('hidden');
-  } catch (err) {
-    console.error('CSV fetch error', err);
-    const lt = document.getElementById('loadingText');
-    if (lt) lt.innerHTML = `<span style="color:#ff6b6b">Error loading data. Check sheet permissions or URL.</span>`;
-  }
-}
+    async function fetchData() {
+      try {
+        const res = await fetch(CSV_URL, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Network response not OK: ' + res.status);
+        const csv = await res.text();
+        allData = parseCSV(csv);
 
-function populateFilters() {
-  const monthSet = new Set();
-  const userSet = new Set();
-  allData.forEach(r => {
-    const m = getField(r, ['Month']);
-    const u = getField(r, ['User Name','User']);
-    if (m) monthSet.add(m);
-    if (u) userSet.add(u);
-  });
-  const monthArr = ['All', ...Array.from(monthSet)];
-  const userArr = ['All', ...Array.from(userSet)];
+        // For debugging while deployed:
+        console.log('Rows fetched:', allData.length);
+        console.log('Sample row:', allData[0]);
 
-  const monthFilter = document.getElementById('monthFilter');
-  const userFilter = document.getElementById('userFilter');
-  if (monthFilter) monthFilter.innerHTML = monthArr.map(m=>`<option value="${m}">${m}</option>`).join('');
-  if (userFilter) userFilter.innerHTML = userArr.map(u=>`<option value="${u}">${u}</option>`).join('');
+        document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString()}`;
 
-  updateDateFilter();
-}
+        populateFilters();
+        filterData();
 
-function updateDateFilter() {
-  const selMonth = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'All';
-  const selUser = document.getElementById('userFilter') ? document.getElementById('userFilter').value : 'All';
-  let rows = allData.slice();
-  if (selMonth && selMonth !== 'All') rows = rows.filter(r => (getField(r,['Month'])||'') === selMonth);
-  if (selUser && selUser !== 'All') rows = rows.filter(r => (getField(r,['User Name','User'])||'') === selUser);
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('metricsContainer').classList.remove('hidden');
+      } catch (err) {
+        console.error('Error fetching CSV:', err);
+        document.getElementById('loadingText').innerHTML = `<p class="text-red-400">Error loading data. Please check your internet connection or sheet permissions.</p>`;
+      }
+    }
 
-  const dateSet = new Set();
-  rows.forEach(r => {
-    const d = getField(r, ['Date']);
-    if (d) dateSet.add(d);
-  });
+    // Build canonical getters so code doesn't rely on exact header text
+    function getField(row, preferredNames) {
+      for (const name of preferredNames) {
+        const key = normalizeHeader(name);
+        if (row.hasOwnProperty(key) && row[key] !== '') return row[key];
+      }
+      // fallback: try some common keys
+      for (const k in row) {
+        if (k.includes('date') && preferredNames[0].toLowerCase().includes('date')) return row[k];
+        if (k.includes('user') && preferredNames[0].toLowerCase().includes('user')) return row[k];
+      }
+      return '';
+    }
 
-  const dates = ['', ...Array.from(dateSet).sort((a,b)=> (Date.parse(a)||Date.parse(a.replace(/-/g,' '))||0) - (Date.parse(b)||Date.parse(b.replace(/-/g,' '))||0))];
-  const dateFilter = document.getElementById('dateFilter');
-  if (dateFilter) {
-    const cur = dateFilter.value;
-    dateFilter.innerHTML = dates.map(d=>`<option value="${d}">${d || 'All Dates'}</option>`).join('');
-    if (dates.includes(cur)) dateFilter.value = cur; else dateFilter.value = '';
-  }
-}
+    function populateFilters() {
+      // Build sets
+      const monthSet = new Set();
+      const userSet = new Set();
 
-function filterData() {
-  const selectedMonth = document.getElementById('monthFilter') ? document.getElementById('monthFilter').value : 'All';
-  const selectedDate = document.getElementById('dateFilter') ? document.getElementById('dateFilter').value : '';
-  const selectedUser = document.getElementById('userFilter') ? document.getElementById('userFilter').value : 'All';
+      allData.forEach(r => {
+        const month = getField(r, ['Month']) || '';
+        const user = getField(r, ['User Name', 'User']) || '';
+        if (month) monthSet.add(month);
+        if (user) userSet.add(user);
+      });
 
-  filteredData = allData.filter(r => {
-    const month = getField(r,['Month']) || '';
-    const date = getField(r,['Date']) || '';
-    const user = getField(r, ['User Name','User']) || '';
-    if (selectedMonth && selectedMonth !== 'All' && month !== selectedMonth) return false;
-    if (selectedDate && selectedDate !== '' && date !== selectedDate) return false;
-    if (selectedUser && selectedUser !== 'All' && user !== selectedUser) return false;
-    return true;
-  });
+      const monthArray = ['All', ...Array.from(monthSet).filter(Boolean)];
+      const userArray = ['All', ...Array.from(userSet).filter(Boolean)];
 
-  updateDashboard();
-}
+      const monthFilter = document.getElementById('monthFilter');
+      const userFilter = document.getElementById('userFilter');
 
-function updateDashboard() {
-  updateMetrics();
-  updateCharts();
-  updateTable();
-  updateDateFilter();
-}
+      monthFilter.innerHTML = monthArray.map(m => `<option value="${m}">${m}</option>`).join('');
+      userFilter.innerHTML = userArray.map(u => `<option value="${u}">${u}</option>`).join('');
 
-function updateMetrics() {
-  // Users
-  const users = new Set(filteredData.map(r=> getField(r, ['User Name','User'])).filter(Boolean));
-  const elUsers = document.getElementById('metricUsers');
-  if (elUsers) elUsers.textContent = users.size;
+      // ensure listeners will react
+      monthFilter.value = 'All';
+      userFilter.value = 'All';
+    }
 
-  // Hours
-  const hours = filteredData.reduce((s,r)=> s + (parseNum( getField(r,['# of Hours','Hours'])) || 0), 0);
-  const elHours = document.getElementById('metricHours'); if (elHours) elHours.textContent = hours.toFixed(1);
+    function filterData() {
+      const selectedMonth = document.getElementById('monthFilter').value;
+      const selectedDate = document.getElementById('dateFilter').value;
+      const selectedUser = document.getElementById('userFilter').value;
 
-  // Avg Productivity (include only rows with numeric productivity)
-  const pList = filteredData.map(r=>parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
-  const avgP = pList.length ? (pList.reduce((a,b)=>a+b,0)/pList.length).toFixed(1) : 0;
-  const elProd = document.getElementById('metricProductivity'); if (elProd) elProd.textContent = `${avgP}%`;
+      filteredData = allData.filter(r => {
+        const month = getField(r, ['Month']);
+        const date = getField(r, ['Date']);
+        const user = getField(r, ['User Name', 'User']);
 
-  // Error Count = sum of Count (missing => 0)
-  const errors = filteredData.reduce((s,r)=> s + (parseNum(getField(r,['Count'])) || 0), 0);
-  const elErr = document.getElementById('metricErrors'); if (elErr) elErr.textContent = errors.toFixed(0);
+        if (selectedMonth && selectedMonth !== 'All' && month !== selectedMonth) return false;
+        if (selectedDate && date !== selectedDate) return false;
+        if (selectedUser && selectedUser !== 'All' && user !== selectedUser) return false;
+        return true;
+      });
 
-  // Audited: sum ONLY numeric audited values (rows without audited excluded)
-  const auditedVals = filteredData.map(r=>getAuditedValue(r)).filter(v=>v!==null);
-  const totalAudited = auditedVals.length ? auditedVals.reduce((a,b)=>a+b,0) : null;
-  const elAud = document.getElementById('metricAudited');
-  if (elAud) elAud.textContent = (totalAudited === null ? '-' : totalAudited.toFixed(0));
+      updateDashboard();
+    }
 
-  // Avg Quality: include only rows where BOTH Quality numeric AND Audited numeric
-  const qualPairs = filteredData.map(r=> {
-    const q = parseNum(getField(r,['Quality %','Quality']));
-    const a = getAuditedValue(r);
-    return {q,a};
-  }).filter(x=> x.q !== null && x.a !== null);
-  const avgQual = qualPairs.length ? (qualPairs.reduce((s,x)=> s + x.q,0)/qualPairs.length).toFixed(1) : 0;
-  const elQ = document.getElementById('metricQuality'); if (elQ) elQ.textContent = `${avgQual}%`;
-}
+    function updateDashboard() {
+      updateMetrics();
+      updateCharts();
+      updateUserPerformance();
+      updateTable();
+      updateDateFilter();
+    }
 
-function updateCharts() {
-  // build date series from filteredData
-  const dates = Array.from(new Set(filteredData.map(r => getField(r,['Date'])))).filter(Boolean)
-    .sort((a,b)=> (Date.parse(a)||Date.parse(a.replace(/-/g,' '))||0) - (Date.parse(b)||Date.parse(b.replace(/-/g,' '))||0));
+    function updateDateFilter() {
+      const selectedMonth = document.getElementById('monthFilter').value;
+      const selectedUser = document.getElementById('userFilter').value;
 
-  const prodSeries = dates.map(date => {
-    const day = filteredData.filter(r => getField(r,['Date']) === date);
-    const pvals = day.map(r => parseNum(getField(r,['Productivity (%)','Productivity']))).filter(v=>v!==null);
-    const qvals = day.map(r => parseNum(getField(r,['Quality %','Quality']))).filter(v=>v!==null);
-    const avgP = pvals.length ? (pvals.reduce((a,b)=>a+b,0)/pvals.length) : 0;
-    const avgQ = qvals.length ? (qvals.reduce((a,b)=>a+b,0)/qvals.length) : 0;
-    return {date, productivity: avgP.toFixed(1), quality: avgQ.toFixed(1)};
-  });
+      let rows = allData.slice();
+      if (selectedMonth && selectedMonth !== 'All') rows = rows.filter(r => getField(r, ['Month']) === selectedMonth);
+      if (selectedUser && selectedUser !== 'All') rows = rows.filter(r => getField(r, ['User Name', 'User']) === selectedUser);
 
-  const targetSeries = dates.map(date => {
-    const day = filteredData.filter(r => getField(r,['Date']) === date);
-    const t = day.reduce((s,r) => s + (parseNum(getField(r,['Target'])) || 0), 0);
-    const a = day.reduce((s,r) => s + (parseNum(getField(r,['Achieved'])) || 0), 0);
-    return {date, target:t, achieved:a};
-  });
+      const dateSet = new Set();
+      rows.forEach(r => {
+        const d = getField(r, ['Date']);
+        if (d) dateSet.add(d);
+      });
 
-  // draw charts (Chart.js) - guard in case canvas missing
-  const pCanvas = document.getElementById('productivityChart');
-  if (pCanvas) {
-    const ctx1 = pCanvas.getContext('2d');
-    if (productivityChart) productivityChart.destroy();
-    productivityChart = new Chart(ctx1, {
-      type:'line',
-      data:{
-        labels: prodSeries.map(d=>d.date),
-        datasets:[
-          { label:'Productivity %', data: prodSeries.map(d=>d.productivity), borderColor:'#667eea', backgroundColor:'rgba(102,126,234,0.08)', tension:0.4 },
-          { label:'Quality %', data: prodSeries.map(d=>d.quality), borderColor:'#f093fb', backgroundColor:'rgba(240,147,251,0.08)', tension:0.4 }
-        ]
-      },
-      options:{ responsive:true, maintainAspectRatio:true }
-    });
-  }
+      const dateArray = ['', ...Array.from(dateSet).sort((a,b) => {
+        // Attempt to parse dates like "10-Mar-2025" or ISO
+        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' '));
+        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' '));
+        return (pa || 0) - (pb || 0);
+      })];
 
-  const tCanvas = document.getElementById('targetChart');
-  if (tCanvas) {
-    const ctx2 = tCanvas.getContext('2d');
-    if (targetChart) targetChart.destroy();
-    targetChart = new Chart(ctx2, {
-      type:'bar',
-      data:{
-        labels: targetSeries.map(d=>d.date),
-        datasets:[
-          { label:'Target', data: targetSeries.map(d=>d.target) },
-          { label:'Achieved', data: targetSeries.map(d=>d.achieved) }
-        ]
-      },
-      options:{ responsive:true, maintainAspectRatio:true }
-    });
-  }
-}
+      const dateFilter = document.getElementById('dateFilter');
+      const current = dateFilter.value;
+      dateFilter.innerHTML = dateArray.map(d => `<option value="${d}">${d || 'All Dates'}</option>`).join('');
+      if (dateArray.includes(current)) dateFilter.value = current;
+      else dateFilter.value = '';
+    }
 
-function updateTable() {
-  const tbody = document.getElementById('dataTable');
-  if (!tbody) return;
-  const rowsHtml = filteredData.map(r => {
-    const name = getField(r,['User Name','User']);
-    const project = getField(r,['Project Name','Project','Process Type']);
-    const hours = parseNum(getField(r,['# of Hours','Hours'])) || 0;
-    const target = parseNum(getField(r,['Target'])) || 0;
-    const achieved = parseNum(getField(r,['Achieved'])) || 0;
-    const productivity = parseNum(getField(r,['Productivity (%)','Productivity'])) || 0;
-    const errors = getCountValue(r) || 0;
-    const audited = getAuditedValue(r);
-    const quality = parseNum(getField(r,['Quality %','Quality']));
-    return `<tr>
-      <td>${name}</td><td>${project}</td>
-      <td style="text-align:center">${hours}</td>
-      <td style="text-align:center">${target}</td>
-      <td style="text-align:center">${achieved}</td>
-      <td style="text-align:center">${productivity===null? '': productivity + '%'}</td>
-      <td style="text-align:center">${errors}</td>
-      <td style="text-align:center">${audited===null? '': audited}</td>
-      <td style="text-align:center">${quality===null? '': quality + '%'}</td>
-    </tr>`;
-  }).join('');
+    function updateMetrics() {
+      // compute metrics with safe parsing and audited fallback
+      const totalHours = filteredData.reduce((sum, r) => {
+        return sum + parseNum(getField(r, ['# of Hours', 'Hours']));
+      }, 0);
 
-  tbody.innerHTML = rowsHtml || '<tr><td colspan="9" style="text-align:center;padding:20px;color:#94a3b8">No records</td></tr>';
-}
+      const totalTarget = filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Target'])), 0);
+      const totalAchieved = filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Achieved'])), 0);
 
-// wire events (assumes the original HTML has these IDs)
-document.getElementById('monthFilter')?.addEventListener('change', filterData);
-document.getElementById('dateFilter')?.addEventListener('change', filterData);
-document.getElementById('userFilter')?.addEventListener('change', filterData);
-document.getElementById('applyFilters')?.addEventListener('click', filterData);
-document.getElementById('resetFilters')?.addEventListener('click', ()=> {
-  if (document.getElementById('monthFilter')) document.getElementById('monthFilter').value = 'All';
-  if (document.getElementById('userFilter')) document.getElementById('userFilter').value = 'All';
-  if (document.getElementById('dateFilter')) document.getElementById('dateFilter').value = '';
-  filterData();
-});
+      const avgProductivity = filteredData.length > 0
+        ? (filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Productivity (%)', 'Productivity', 'Prod'])), 0) / filteredData.length).toFixed(1)
+        : 0;
 
-// fetch now
-fetchData();
-</script>
+      // Audited logic: prefer 'Audited' then 'Count' then 0
+      const totalAudited = filteredData.reduce((sum, r) => {
+        const a = parseNum(getField(r, ['Audited']));
+        if (a > 0) return sum + a;
+        const c = parseNum(getField(r, ['Count']));
+        return sum + c;
+      }, 0);
+
+      const avgQuality = filteredData.length > 0
+        ? (filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Quality %', 'Quality'])), 0) / filteredData.length).toFixed(1)
+        : 0;
+
+      document.getElementById('metricHours').textContent = `${totalHours.toFixed(1)}h`;
+      document.getElementById('metricTarget').textContent = totalTarget.toFixed(0);
+      document.getElementById('metricAchieved').textContent = totalAchieved.toFixed(0);
+      document.getElementById('metricProductivity').textContent = `${avgProductivity}%`;
+      document.getElementById('metricQuality').textContent = `${avgQuality}%`;
+      document.getElementById('metricAudited').textContent = totalAudited.toFixed(0);
+    }
+
+    function updateCharts() {
+      // Build date list from filteredData
+      const dates = Array.from(new Set(filteredData.map(r => getField(r, ['Date'])))).filter(Boolean).sort((a,b) => {
+        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' '));
+        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' '));
+        return (pa || 0) - (pb || 0);
+      });
+
+      const productivityData = dates.map(date => {
+        const day = filteredData.filter(r => getField(r, ['Date']) === date);
+        const avgProd = day.length ? (day.reduce((s, d) => s + parseNum(getField(d, ['Productivity (%)','Productivity'])), 0) / day.length) : 0;
+        const avgQual = day.length ? (day.reduce((s, d) => s + parseNum(getField(d, ['Quality %','Quality'])), 0) / day.length) : 0;
+        return { date, productivity: avgProd.toFixed(1), quality: avgQual.toFixed(1) };
+      });
+
+      const targetData = dates.map(date => {
+        const day = filteredData.filter(r => getField(r, ['Date']) === date);
+        const target = day.reduce((s, d) => s + parseNum(getField(d, ['Target'])), 0);
+        const achieved = day.reduce((s, d) => s + parseNum(getField(d, ['Achieved'])), 0);
+        return { date, target, achieved };
+      });
+
+      // Productivity chart (line)
+      const ctx1 = document.getElementById('productivityChart').getContext('2d');
+      if (productivityChart) productivityChart.destroy();
+      productivityChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels: productivityData.map(d => d.date),
+          datasets: [
+            {
+              label: 'Productivity %',
+              data: productivityData.map(d => d.productivity),
+              borderColor: '#667eea',
+              backgroundColor: 'rgba(102, 126, 234, 0.1)',
+              tension: 0.4
+            },
+            {
+              label: 'Quality %',
+              data: productivityData.map(d => d.quality),
+              borderColor: '#f093fb',
+              backgroundColor: 'rgba(240, 147, 251, 0.1)',
+              tension: 0.4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { labels: { color: '#94a3b8' } } },
+          scales: {
+            y: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' }, min: 0, max: 200 },
+            x: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } }
+          }
+        }
+      });
+
+      // Target vs Achieved (bar)
+      const ctx2 = document.getElementById('targetChart').getContext('2d');
+      if (targetChart) targetChart.destroy();
+      targetChart = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: targetData.map(d => d.date),
+          datasets: [
+            { label: 'Target', data: targetData.map(d => d.target), backgroundColor: '#667eea' },
+            { label: 'Achieved', data: targetData.map(d => d.achieved), backgroundColor: '#10b981' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { labels: { color: '#94a3b8' } } },
+          scales: {
+            y: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } },
+            x: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } }
+          }
+        }
+      });
+    }
+
+    function updateUserPerformance() {
+      const userStats = {};
+      filteredData.forEach(row => {
+        const user = getField(row, ['User Name', 'User']) || 'Unknown';
+        if (!userStats[user]) userStats[user] = { name: user, productivity: [], quality: [], hours: 0 };
+        userStats[user].productivity.push(parseNum(getField(row, ['Productivity (%)','Productivity'])));
+        userStats[user].quality.push(parseNum(getField(row, ['Quality %','Quality'])));
+        userStats[user].hours += parseNum(getField(row, ['# of Hours','Hours']));
+      });
+
+      const html = Object.values(userStats).map(stat => {
+        const avgProd = stat.productivity.length ? (stat.productivity.reduce((a,b)=>a+b,0)/stat.productivity.length).toFixed(1) : '0.0';
+        const avgQual = stat.quality.length ? (stat.quality.reduce((a,b)=>a+b,0)/stat.quality.length).toFixed(1) : '0.0';
+        return `
+          <div class="bg-slate-700 rounded-lg p-4 border border-slate-600">
+            <div class="font-semibold text-white mb-3">${stat.name}</div>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between"><span class="text-slate-400">Productivity:</span><span class="font-bold text-green-400">${avgProd}%</span></div>
+              <div class="flex justify-between"><span class="text-slate-400">Quality:</span><span class="font-bold text-blue-400">${avgQual}%</span></div>
+              <div class="flex justify-between"><span class="text-slate-400">Hours:</span><span class="font-bold text-purple-400">${stat.hours.toFixed(1)}h</span></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('userPerformance').innerHTML = html;
+    }
+
+    function updateTable() {
+      const html = filteredData.slice(0, 50).map(row => `
+        <tr class="border-t border-slate-700 hover:bg-slate-700">
+          <td class="px-4 py-3">${getField(row, ['Date'])}</td>
+          <td class="px-4 py-3">${getField(row, ['User Name', 'User'])}</td>
+          <td class="px-4 py-3 text-xs">${getField(row, ['Project Name', 'Project'])}</td>
+          <td class="px-4 py-3 text-center">${parseNum(getField(row, ['# of Hours','Hours']))}</td>
+          <td class="px-4 py-3 text-center">${parseNum(getField(row, ['Target']))}</td>
+          <td class="px-4 py-3 text-center font-semibold text-green-400">${parseNum(getField(row, ['Achieved']))}</td>
+          <td class="px-4 py-3 text-center font-semibold text-blue-400">${parseNum(getField(row, ['Productivity (%)','Productivity']))}%</td>
+          <td class="px-4 py-3 text-center font-semibold text-purple-400">${parseNum(getField(row, ['Quality %','Quality']))}%</td>
+        </tr>
+      `).join('');
+      document.getElementById('dataTable').innerHTML = html;
+    }
+
+    // event listeners
+    document.getElementById('monthFilter').addEventListener('change', filterData);
+    document.getElementById('dateFilter').addEventListener('change', filterData);
+    document.getElementById('userFilter').addEventListener('change', filterData);
+
+    // start
+    fetchData();
+  </script>
+</body>
+</html>
