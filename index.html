@@ -3,109 +3,127 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Productivity Dashboard</title>
+    <title>Real-time User & Process Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen">
-  <div id="app" class="p-8">
-    <div class="max-w-7xl mx-auto">
-      <div class="mb-8">
-        <h1 class="text-4xl font-bold text-white mb-2">📊 Productivity Dashboard</h1>
-        <p class="text-slate-400" id="lastUpdated">Loading...</p>
-      </div>
+<body class="bg-gray-50">
+  <div id="app">
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-blue-900 to-blue-800 text-white p-6 shadow-lg">
+      <h1 class="text-2xl font-bold">Real-time User & Process Analytics</h1>
+    </div>
 
-      <div class="bg-slate-800 rounded-lg p-6 mb-8 border border-slate-700">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Filters -->
+    <div class="bg-white p-6 shadow">
+      <div class="max-w-7xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           <div>
-            <label class="block text-sm font-semibold text-slate-300 mb-3">📅 Month</label>
-            <select id="monthFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
-              <option value="All">All</option>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">MONTH</label>
+            <select id="monthFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Months</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-semibold text-slate-300 mb-3">📅 Date</label>
-            <select id="dateFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
-              <option value="">All Dates</option>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">YEAR</label>
+            <select id="yearFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Years</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-semibold text-slate-300 mb-3">👥 User</label>
-            <select id="userFilter" class="w-full px-4 py-2 bg-slate-700 text-white border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500">
-              <option value="All">All</option>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">WEEK</label>
+            <select id="weekFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Weeks</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">USER</label>
+            <select id="userFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Users</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold text-gray-700 mb-2">PROCESS</label>
+            <select id="processFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="All">All Process</option>
             </select>
           </div>
         </div>
+        <div class="mt-4 flex gap-3">
+          <button id="applyBtn" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md">Apply Filters</button>
+          <button id="resetBtn" class="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-md">Reset</button>
+        </div>
       </div>
+    </div>
 
-      <div id="loading" class="text-center py-12">
-        <div class="inline-block animate-spin text-blue-400 text-4xl">⟳</div>
-        <p class="text-slate-300 mt-4" id="loadingText">Loading dashboard...</p>
+    <!-- Tabs -->
+    <div class="bg-white border-b border-gray-200">
+      <div class="max-w-7xl mx-auto px-6">
+        <div class="flex gap-8">
+          <button id="userTabBtn" class="py-4 px-2 font-semibold text-blue-600 border-b-2 border-blue-600">👤 User-Wise Report</button>
+          <button id="processTabBtn" class="py-4 px-2 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700">⚙️ Process-Wise Report</button>
+        </div>
       </div>
+    </div>
 
-      <div id="metricsContainer" class="hidden">
-        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-          <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Hours Logged</div>
-            <div id="metricHours" class="text-3xl font-bold">0h</div>
-          </div>
-          <div class="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Target Tasks</div>
-            <div id="metricTarget" class="text-3xl font-bold">0</div>
-          </div>
-          <div class="bg-gradient-to-br from-green-600 to-green-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Tasks Achieved</div>
-            <div id="metricAchieved" class="text-3xl font-bold">0</div>
-          </div>
-          <div class="bg-gradient-to-br from-orange-600 to-orange-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Avg Productivity</div>
-            <div id="metricProductivity" class="text-3xl font-bold">0%</div>
-          </div>
-          <div class="bg-gradient-to-br from-pink-600 to-pink-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Quality Score</div>
-            <div id="metricQuality" class="text-3xl font-bold">0%</div>
-          </div>
-          <div class="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg p-6 text-white">
-            <div class="text-xs opacity-90 mb-2">Audited Items</div>
-            <div id="metricAudited" class="text-3xl font-bold">0</div>
-          </div>
+    <!-- Content -->
+    <div class="bg-white p-6">
+      <div class="max-w-7xl mx-auto">
+        <div id="loadingMsg" class="text-center py-8">
+          <p class="text-gray-600">Loading data...</p>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-            <h2 class="text-xl font-bold text-white mb-6">Productivity Trend</h2>
-            <canvas id="productivityChart"></canvas>
+        <div id="userTab" class="hidden">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">User-Wise Performance Report</h2>
+            <button class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-md">📥 Export to Excel</button>
           </div>
-          <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-            <h2 class="text-xl font-bold text-white mb-6">Target vs Achieved</h2>
-            <canvas id="targetChart"></canvas>
+
+          <!-- KPI Cards -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-blue-600 rounded-lg p-6 text-white">
+              <div class="text-sm opacity-90 mb-2">Total Users</div>
+              <div id="totalUsers" class="text-4xl font-bold">0</div>
+            </div>
+            <div class="bg-green-500 rounded-lg p-6 text-white">
+              <div class="text-sm opacity-90 mb-2">Avg Productivity</div>
+              <div id="avgProductivity" class="text-4xl font-bold">0%</div>
+            </div>
+            <div class="bg-pink-500 rounded-lg p-6 text-white">
+              <div class="text-sm opacity-90 mb-2">Avg Quality</div>
+              <div id="avgQuality" class="text-4xl font-bold">0%</div>
+            </div>
+            <div class="bg-cyan-500 rounded-lg p-6 text-white">
+              <div class="text-sm opacity-90 mb-2">Total Hours</div>
+              <div id="totalHours" class="text-4xl font-bold">0</div>
+            </div>
           </div>
-        </div>
 
-        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
-          <h2 class="text-xl font-bold text-white mb-6">User Performance Summary</h2>
-          <div id="userPerformance" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-        </div>
-
-        <div class="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 class="text-xl font-bold text-white mb-6">Detailed Records</h2>
+          <!-- Table -->
           <div class="overflow-x-auto">
-            <table class="w-full text-xs text-slate-300">
-              <thead class="bg-slate-700">
+            <table class="w-full text-sm">
+              <thead class="bg-blue-900 text-white">
                 <tr>
-                  <th class="px-4 py-3 text-left">Date</th>
-                  <th class="px-4 py-3 text-left">User</th>
-                  <th class="px-4 py-3 text-left">Project</th>
-                  <th class="px-4 py-3 text-center">Hours</th>
-                  <th class="px-4 py-3 text-center">Target</th>
-                  <th class="px-4 py-3 text-center">Achieved</th>
-                  <th class="px-4 py-3 text-center">Productivity %</th>
-                  <th class="px-4 py-3 text-center">Quality %</th>
+                  <th class="px-4 py-3 text-left font-semibold">NAME</th>
+                  <th class="px-4 py-3 text-left font-semibold">PROCESS NAME</th>
+                  <th class="px-4 py-3 text-center font-semibold">SUM OF # OF HOURS</th>
+                  <th class="px-4 py-3 text-center font-semibold">TARGET</th>
+                  <th class="px-4 py-3 text-center font-semibold">ACHIEVED</th>
+                  <th class="px-4 py-3 text-center font-semibold">PRODUCTIVITY (%)</th>
+                  <th class="px-4 py-3 text-center font-semibold"># OF ERRORS</th>
+                  <th class="px-4 py-3 text-center font-semibold">AUDITED</th>
+                  <th class="px-4 py-3 text-center font-semibold">QUALITY(%)</th>
                 </tr>
               </thead>
-              <tbody id="dataTable"></tbody>
+              <tbody id="userTable" class="divide-y divide-gray-200">
+              </tbody>
             </table>
           </div>
+        </div>
+
+        <div id="processTab" class="hidden">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6">Process-Wise Performance Report</h2>
+          <div id="processTableContainer"></div>
         </div>
       </div>
     </div>
@@ -114,44 +132,37 @@
   <script>
     // ============ CONFIG ============
     const SHEET_ID = '1br-F3OlvJWn5TDn1Loh7WEXOtVw-o1Y7gl3kAxaMfHM';
-    const SHEET_GID = '0'; // change if your data tab uses another gid
+    const SHEET_GID = '0';
     const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
 
     let allData = [];
     let filteredData = [];
-    let productivityChart = null;
-    let targetChart = null;
 
-    // Utility: normalize header keys
     function normalizeHeader(h) {
       return h.toString().trim().replace(/\s+/g, ' ').replace(/\uFEFF/g, '').toLowerCase();
     }
 
-    // Utility: parse numeric (handles '86%', '', null)
     function parseNum(val) {
-      if (val === undefined || val === null || val === '') return 0;
+      if (val === undefined || val === null || val === '') return null;
       const cleaned = String(val).replace(/[%\s,]+/g, '').trim();
       const n = parseFloat(cleaned);
-      return isNaN(n) ? 0 : n;
+      return isNaN(n) ? null : n;
     }
 
-    // Parse CSV robustly
     function parseCSV(csv) {
       const rows = csv.split(/\r?\n/).filter(Boolean);
       if (rows.length === 0) return [];
-      // Split header by comma but allow quoted values
       const headerLine = rows[0];
       const headers = headerLine.split(',').map(h => normalizeHeader(h));
       const dataRows = [];
       for (let i = 1; i < rows.length; i++) {
-        // Use a simple CSV split that handles quoted commas
         const line = rows[i];
         const values = [];
         let cur = '';
         let inQuotes = false;
         for (let c = 0; c < line.length; c++) {
           const ch = line[c];
-          if (ch === '"' ) { inQuotes = !inQuotes; continue; }
+          if (ch === '"') { inQuotes = !inQuotes; continue; }
           if (ch === ',' && !inQuotes) { values.push(cur); cur = ''; continue; }
           cur += ch;
         }
@@ -165,83 +176,79 @@
       return dataRows;
     }
 
+    function getField(row, preferredNames) {
+      for (const name of preferredNames) {
+        const key = normalizeHeader(name);
+        if (row.hasOwnProperty(key) && row[key] !== '') return row[key];
+      }
+      return '';
+    }
+
     async function fetchData() {
       try {
         const res = await fetch(CSV_URL, { cache: 'no-store' });
         if (!res.ok) throw new Error('Network response not OK: ' + res.status);
         const csv = await res.text();
         allData = parseCSV(csv);
-
-        // For debugging while deployed:
         console.log('Rows fetched:', allData.length);
         console.log('Sample row:', allData[0]);
-
-        document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleString()}`;
-
         populateFilters();
-        filterData();
-
-        document.getElementById('loading').classList.add('hidden');
-        document.getElementById('metricsContainer').classList.remove('hidden');
+        applyFilters();
+        document.getElementById('loadingMsg').classList.add('hidden');
       } catch (err) {
         console.error('Error fetching CSV:', err);
-        document.getElementById('loadingText').innerHTML = `<p class="text-red-400">Error loading data. Please check your internet connection or sheet permissions.</p>`;
+        document.getElementById('loadingMsg').innerHTML = '<p class="text-red-600">Error loading data. Please check your internet connection or sheet permissions.</p>';
       }
-    }
-
-    // Build canonical getters so code doesn't rely on exact header text
-    function getField(row, preferredNames) {
-      for (const name of preferredNames) {
-        const key = normalizeHeader(name);
-        if (row.hasOwnProperty(key) && row[key] !== '') return row[key];
-      }
-      // fallback: try some common keys
-      for (const k in row) {
-        if (k.includes('date') && preferredNames[0].toLowerCase().includes('date')) return row[k];
-        if (k.includes('user') && preferredNames[0].toLowerCase().includes('user')) return row[k];
-      }
-      return '';
     }
 
     function populateFilters() {
-      // Build sets
       const monthSet = new Set();
+      const yearSet = new Set();
+      const weekSet = new Set();
       const userSet = new Set();
+      const processSet = new Set();
 
       allData.forEach(r => {
-        const month = getField(r, ['Month']) || '';
-        const user = getField(r, ['User Name', 'User']) || '';
+        const month = getField(r, ['Month']);
+        const year = getField(r, ['Year']);
+        const week = getField(r, ['Week']);
+        const user = getField(r, ['User Name', 'User']);
+        const process = getField(r, ['Process Name', 'Process']);
+
         if (month) monthSet.add(month);
+        if (year) yearSet.add(year);
+        if (week) weekSet.add(week);
         if (user) userSet.add(user);
+        if (process) processSet.add(process);
       });
 
-      const monthArray = ['All', ...Array.from(monthSet).filter(Boolean)];
-      const userArray = ['All', ...Array.from(userSet).filter(Boolean)];
+      function populateSelect(id, items) {
+        const select = document.getElementById(id);
+        const sorted = Array.from(items).sort();
+        select.innerHTML = `<option value="All">All ${id.replace('Filter', '').charAt(0).toUpperCase() + id.replace('Filter', '').slice(1)}s</option>` +
+          sorted.map(item => `<option value="${item}">${item}</option>`).join('');
+      }
 
-      const monthFilter = document.getElementById('monthFilter');
-      const userFilter = document.getElementById('userFilter');
-
-      monthFilter.innerHTML = monthArray.map(m => `<option value="${m}">${m}</option>`).join('');
-      userFilter.innerHTML = userArray.map(u => `<option value="${u}">${u}</option>`).join('');
-
-      // ensure listeners will react
-      monthFilter.value = 'All';
-      userFilter.value = 'All';
+      populateSelect('monthFilter', monthSet);
+      populateSelect('yearFilter', yearSet);
+      populateSelect('weekFilter', weekSet);
+      populateSelect('userFilter', userSet);
+      populateSelect('processFilter', processSet);
     }
 
-    function filterData() {
-      const selectedMonth = document.getElementById('monthFilter').value;
-      const selectedDate = document.getElementById('dateFilter').value;
-      const selectedUser = document.getElementById('userFilter').value;
+    function applyFilters() {
+      const month = document.getElementById('monthFilter').value;
+      const year = document.getElementById('yearFilter').value;
+      const week = document.getElementById('weekFilter').value;
+      const user = document.getElementById('userFilter').value;
+      const process = document.getElementById('processFilter').value;
 
       filteredData = allData.filter(r => {
-        const month = getField(r, ['Month']);
-        const date = getField(r, ['Date']);
-        const user = getField(r, ['User Name', 'User']);
-
-        if (selectedMonth && selectedMonth !== 'All' && month !== selectedMonth) return false;
-        if (selectedDate && date !== selectedDate) return false;
-        if (selectedUser && selectedUser !== 'All' && user !== selectedUser) return false;
+        if (month !== 'All' && getField(r, ['Month']) !== month) return false;
+        if (year !== 'All' && getField(r, ['Year']) !== year) return false;
+        if (week !== 'All' && getField(r, ['Week']) !== week) return false;
+        if (user !== 'All' && getField(r, ['User Name', 'User']) !== user) return false;
+        if (process !== 'All' && getField(r, ['Process Name', 'Process']) !== process) return false;
         return true;
       });
 
@@ -249,205 +256,143 @@
     }
 
     function updateDashboard() {
-      updateMetrics();
-      updateCharts();
-      updateUserPerformance();
-      updateTable();
-      updateDateFilter();
+      updateUserMetrics();
+      updateUserTable();
     }
 
-    function updateDateFilter() {
-      const selectedMonth = document.getElementById('monthFilter').value;
-      const selectedUser = document.getElementById('userFilter').value;
+    function updateUserMetrics() {
+      const uniqueUsers = new Set();
+      let totalHours = 0;
+      let productivityValues = [];
+      let qualityValues = [];
 
-      let rows = allData.slice();
-      if (selectedMonth && selectedMonth !== 'All') rows = rows.filter(r => getField(r, ['Month']) === selectedMonth);
-      if (selectedUser && selectedUser !== 'All') rows = rows.filter(r => getField(r, ['User Name', 'User']) === selectedUser);
-
-      const dateSet = new Set();
-      rows.forEach(r => {
-        const d = getField(r, ['Date']);
-        if (d) dateSet.add(d);
+      filteredData.forEach(r => {
+        const user = getField(r, ['User Name', 'User']);
+        if (user) uniqueUsers.add(user);
+        
+        const hours = parseNum(getField(r, ['# of Hours', 'Hours']));
+        if (hours !== null) totalHours += hours;
+        
+        const prod = parseNum(getField(r, ['Productivity (%)', 'Productivity']));
+        if (prod !== null) productivityValues.push(prod);
+        
+        const qual = parseNum(getField(r, ['Quality %', 'Quality']));
+        if (qual !== null) qualityValues.push(qual);
       });
 
-      const dateArray = ['', ...Array.from(dateSet).sort((a,b) => {
-        // Attempt to parse dates like "10-Mar-2025" or ISO
-        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' '));
-        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' '));
-        return (pa || 0) - (pb || 0);
-      })];
-
-      const dateFilter = document.getElementById('dateFilter');
-      const current = dateFilter.value;
-      dateFilter.innerHTML = dateArray.map(d => `<option value="${d}">${d || 'All Dates'}</option>`).join('');
-      if (dateArray.includes(current)) dateFilter.value = current;
-      else dateFilter.value = '';
-    }
-
-    function updateMetrics() {
-      // compute metrics with safe parsing and audited fallback
-      const totalHours = filteredData.reduce((sum, r) => {
-        return sum + parseNum(getField(r, ['# of Hours', 'Hours']));
-      }, 0);
-
-      const totalTarget = filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Target'])), 0);
-      const totalAchieved = filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Achieved'])), 0);
-
-      const avgProductivity = filteredData.length > 0
-        ? (filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Productivity (%)', 'Productivity', 'Prod'])), 0) / filteredData.length).toFixed(1)
+      const avgProd = productivityValues.length > 0 
+        ? (productivityValues.reduce((a, b) => a + b, 0) / productivityValues.length).toFixed(1)
+        : 0;
+      
+      const avgQual = qualityValues.length > 0
+        ? (qualityValues.reduce((a, b) => a + b, 0) / qualityValues.length).toFixed(1)
         : 0;
 
-      // Audited logic: prefer 'Audited' then 'Count' then 0
-      const totalAudited = filteredData.reduce((sum, r) => {
-        const a = parseNum(getField(r, ['Audited']));
-        if (a > 0) return sum + a;
-        const c = parseNum(getField(r, ['Count']));
-        return sum + c;
-      }, 0);
-
-      const avgQuality = filteredData.length > 0
-        ? (filteredData.reduce((sum, r) => sum + parseNum(getField(r, ['Quality %', 'Quality'])), 0) / filteredData.length).toFixed(1)
-        : 0;
-
-      document.getElementById('metricHours').textContent = `${totalHours.toFixed(1)}h`;
-      document.getElementById('metricTarget').textContent = totalTarget.toFixed(0);
-      document.getElementById('metricAchieved').textContent = totalAchieved.toFixed(0);
-      document.getElementById('metricProductivity').textContent = `${avgProductivity}%`;
-      document.getElementById('metricQuality').textContent = `${avgQuality}%`;
-      document.getElementById('metricAudited').textContent = totalAudited.toFixed(0);
+      document.getElementById('totalUsers').textContent = uniqueUsers.size;
+      document.getElementById('avgProductivity').textContent = `${avgProd}%`;
+      document.getElementById('avgQuality').textContent = `${avgQual}%`;
+      document.getElementById('totalHours').textContent = totalHours.toFixed(2);
     }
 
-    function updateCharts() {
-      // Build date list from filteredData
-      const dates = Array.from(new Set(filteredData.map(r => getField(r, ['Date'])))).filter(Boolean).sort((a,b) => {
-        const pa = Date.parse(a) || Date.parse(a.replace(/-/g,' '));
-        const pb = Date.parse(b) || Date.parse(b.replace(/-/g,' '));
-        return (pa || 0) - (pb || 0);
-      });
-
-      const productivityData = dates.map(date => {
-        const day = filteredData.filter(r => getField(r, ['Date']) === date);
-        const avgProd = day.length ? (day.reduce((s, d) => s + parseNum(getField(d, ['Productivity (%)','Productivity'])), 0) / day.length) : 0;
-        const avgQual = day.length ? (day.reduce((s, d) => s + parseNum(getField(d, ['Quality %','Quality'])), 0) / day.length) : 0;
-        return { date, productivity: avgProd.toFixed(1), quality: avgQual.toFixed(1) };
-      });
-
-      const targetData = dates.map(date => {
-        const day = filteredData.filter(r => getField(r, ['Date']) === date);
-        const target = day.reduce((s, d) => s + parseNum(getField(d, ['Target'])), 0);
-        const achieved = day.reduce((s, d) => s + parseNum(getField(d, ['Achieved'])), 0);
-        return { date, target, achieved };
-      });
-
-      // Productivity chart (line)
-      const ctx1 = document.getElementById('productivityChart').getContext('2d');
-      if (productivityChart) productivityChart.destroy();
-      productivityChart = new Chart(ctx1, {
-        type: 'line',
-        data: {
-          labels: productivityData.map(d => d.date),
-          datasets: [
-            {
-              label: 'Productivity %',
-              data: productivityData.map(d => d.productivity),
-              borderColor: '#667eea',
-              backgroundColor: 'rgba(102, 126, 234, 0.1)',
-              tension: 0.4
-            },
-            {
-              label: 'Quality %',
-              data: productivityData.map(d => d.quality),
-              borderColor: '#f093fb',
-              backgroundColor: 'rgba(240, 147, 251, 0.1)',
-              tension: 0.4
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { labels: { color: '#94a3b8' } } },
-          scales: {
-            y: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' }, min: 0, max: 200 },
-            x: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } }
-          }
-        }
-      });
-
-      // Target vs Achieved (bar)
-      const ctx2 = document.getElementById('targetChart').getContext('2d');
-      if (targetChart) targetChart.destroy();
-      targetChart = new Chart(ctx2, {
-        type: 'bar',
-        data: {
-          labels: targetData.map(d => d.date),
-          datasets: [
-            { label: 'Target', data: targetData.map(d => d.target), backgroundColor: '#667eea' },
-            { label: 'Achieved', data: targetData.map(d => d.achieved), backgroundColor: '#10b981' }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: { legend: { labels: { color: '#94a3b8' } } },
-          scales: {
-            y: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } },
-            x: { ticks: { color: '#94a3b8' }, grid: { color: '#475569' } }
-          }
-        }
-      });
-    }
-
-    function updateUserPerformance() {
+    function updateUserTable() {
       const userStats = {};
+
       filteredData.forEach(row => {
         const user = getField(row, ['User Name', 'User']) || 'Unknown';
-        if (!userStats[user]) userStats[user] = { name: user, productivity: [], quality: [], hours: 0 };
-        userStats[user].productivity.push(parseNum(getField(row, ['Productivity (%)','Productivity'])));
-        userStats[user].quality.push(parseNum(getField(row, ['Quality %','Quality'])));
-        userStats[user].hours += parseNum(getField(row, ['# of Hours','Hours']));
+        const process = getField(row, ['Process Name', 'Process']) || 'Unknown';
+        const key = `${user}|${process}`;
+
+        if (!userStats[key]) {
+          userStats[key] = {
+            user, process,
+            hours: 0, target: 0, achieved: 0,
+            productivity: [], quality: [],
+            errors: 0, audited: null
+          };
+        }
+
+        const hours = parseNum(getField(row, ['# of Hours', 'Hours']));
+        if (hours !== null) userStats[key].hours += hours;
+
+        const target = parseNum(getField(row, ['Target']));
+        if (target !== null) userStats[key].target += target;
+
+        const achieved = parseNum(getField(row, ['Achieved']));
+        if (achieved !== null) userStats[key].achieved += achieved;
+
+        const prod = parseNum(getField(row, ['Productivity (%)', 'Productivity']));
+        if (prod !== null) userStats[key].productivity.push(prod);
+
+        const qual = parseNum(getField(row, ['Quality %', 'Quality']));
+        if (qual !== null) userStats[key].quality.push(qual);
+
+        // Errors (Count field)
+        const errors = parseNum(getField(row, ['Count', 'Errors', '# of Errors']));
+        if (errors !== null) userStats[key].errors += errors;
+
+        // Audited: only if present and numeric, otherwise remains null
+        const audited = parseNum(getField(row, ['Audited']));
+        if (audited !== null && userStats[key].audited === null) {
+          userStats[key].audited = audited;
+        }
       });
 
-      const html = Object.values(userStats).map(stat => {
-        const avgProd = stat.productivity.length ? (stat.productivity.reduce((a,b)=>a+b,0)/stat.productivity.length).toFixed(1) : '0.0';
-        const avgQual = stat.quality.length ? (stat.quality.reduce((a,b)=>a+b,0)/stat.quality.length).toFixed(1) : '0.0';
+      const rows = Object.values(userStats).map(stat => {
+        const avgProd = stat.productivity.length > 0
+          ? (stat.productivity.reduce((a, b) => a + b, 0) / stat.productivity.length).toFixed(1)
+          : '0.0';
+        
+        const avgQual = stat.quality.length > 0
+          ? (stat.quality.reduce((a, b) => a + b, 0) / stat.quality.length).toFixed(1)
+          : '0.0';
+
         return `
-          <div class="bg-slate-700 rounded-lg p-4 border border-slate-600">
-            <div class="font-semibold text-white mb-3">${stat.name}</div>
-            <div class="space-y-2 text-sm">
-              <div class="flex justify-between"><span class="text-slate-400">Productivity:</span><span class="font-bold text-green-400">${avgProd}%</span></div>
-              <div class="flex justify-between"><span class="text-slate-400">Quality:</span><span class="font-bold text-blue-400">${avgQual}%</span></div>
-              <div class="flex justify-between"><span class="text-slate-400">Hours:</span><span class="font-bold text-purple-400">${stat.hours.toFixed(1)}h</span></div>
-            </div>
-          </div>
+          <tr class="border-t border-gray-200 hover:bg-gray-50">
+            <td class="px-4 py-3">${stat.user}</td>
+            <td class="px-4 py-3 text-xs">${stat.process}</td>
+            <td class="px-4 py-3 text-center">${stat.hours.toFixed(2)}</td>
+            <td class="px-4 py-3 text-center">${stat.target.toFixed(0)}</td>
+            <td class="px-4 py-3 text-center font-semibold text-green-600">${stat.achieved.toFixed(0)}</td>
+            <td class="px-4 py-3 text-center font-semibold text-blue-600">${avgProd}%</td>
+            <td class="px-4 py-3 text-center">${stat.errors.toFixed(0)}</td>
+            <td class="px-4 py-3 text-center">${stat.audited !== null ? stat.audited.toFixed(0) : '-'}</td>
+            <td class="px-4 py-3 text-center font-semibold text-purple-600">${avgQual}%</td>
+          </tr>
         `;
-      }).join('');
+      });
 
-      document.getElementById('userPerformance').innerHTML = html;
+      document.getElementById('userTable').innerHTML = rows.join('');
     }
 
-    function updateTable() {
-      const html = filteredData.slice(0, 50).map(row => `
-        <tr class="border-t border-slate-700 hover:bg-slate-700">
-          <td class="px-4 py-3">${getField(row, ['Date'])}</td>
-          <td class="px-4 py-3">${getField(row, ['User Name', 'User'])}</td>
-          <td class="px-4 py-3 text-xs">${getField(row, ['Project Name', 'Project'])}</td>
-          <td class="px-4 py-3 text-center">${parseNum(getField(row, ['# of Hours','Hours']))}</td>
-          <td class="px-4 py-3 text-center">${parseNum(getField(row, ['Target']))}</td>
-          <td class="px-4 py-3 text-center font-semibold text-green-400">${parseNum(getField(row, ['Achieved']))}</td>
-          <td class="px-4 py-3 text-center font-semibold text-blue-400">${parseNum(getField(row, ['Productivity (%)','Productivity']))}%</td>
-          <td class="px-4 py-3 text-center font-semibold text-purple-400">${parseNum(getField(row, ['Quality %','Quality']))}%</td>
-        </tr>
-      `).join('');
-      document.getElementById('dataTable').innerHTML = html;
-    }
+    // Event listeners
+    document.getElementById('applyBtn').addEventListener('click', applyFilters);
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      document.getElementById('monthFilter').value = 'All';
+      document.getElementById('yearFilter').value = 'All';
+      document.getElementById('weekFilter').value = 'All';
+      document.getElementById('userFilter').value = 'All';
+      document.getElementById('processFilter').value = 'All';
+      applyFilters();
+    });
 
-    // event listeners
-    document.getElementById('monthFilter').addEventListener('change', filterData);
-    document.getElementById('dateFilter').addEventListener('change', filterData);
-    document.getElementById('userFilter').addEventListener('change', filterData);
+    document.getElementById('userTabBtn').addEventListener('click', () => {
+      document.getElementById('userTab').classList.remove('hidden');
+      document.getElementById('processTab').classList.add('hidden');
+      document.getElementById('userTabBtn').classList.add('border-blue-600', 'text-blue-600');
+      document.getElementById('userTabBtn').classList.remove('border-transparent', 'text-gray-500');
+      document.getElementById('processTabBtn').classList.remove('border-blue-600', 'text-blue-600');
+      document.getElementById('processTabBtn').classList.add('border-transparent', 'text-gray-500');
+    });
 
-    // start
+    document.getElementById('processTabBtn').addEventListener('click', () => {
+      document.getElementById('userTab').classList.add('hidden');
+      document.getElementById('processTab').classList.remove('hidden');
+      document.getElementById('processTabBtn').classList.add('border-blue-600', 'text-blue-600');
+      document.getElementById('processTabBtn').classList.remove('border-transparent', 'text-gray-500');
+      document.getElementById('userTabBtn').classList.remove('border-blue-600', 'text-blue-600');
+      document.getElementById('userTabBtn').classList.add('border-transparent', 'text-gray-500');
+    });
+
     fetchData();
   </script>
 </body>
